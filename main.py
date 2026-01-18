@@ -366,7 +366,7 @@ def process_search_days(message):
 
 @bot.message_handler(func=lambda m: m.text == "📅 Диапазон")
 def search_range(message):
-    msg = bot.send_message(message.chat.id, "Введите диапазон дат в формате: 01.01.2024-10.01.2024", reply_markup=kb_cancel())
+    msg = bot.send_message(message.chat.id, "Введите диапазон дат в формате: 01.01.2026-18.01.2026", reply_markup=kb_cancel())
     bot.register_next_step_handler(msg, process_search_range)
 
 def process_search_range(message):
