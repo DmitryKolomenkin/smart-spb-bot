@@ -57,7 +57,7 @@ def init_database():
     """Initializes the database schema."""
     with DBManager() as cursor:
         cursor.execute("PRAGMA foreign_keys = ON")
-        
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS content (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +67,7 @@ def init_database():
                 iso_date TEXT
             )
         ''')
-        
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS media (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +77,7 @@ def init_database():
                 FOREIGN KEY(content_id) REFERENCES content(id) ON DELETE CASCADE
             )
         ''')
-        
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -85,7 +85,7 @@ def init_database():
                 tag_type TEXT DEFAULT 'user'
             )
         ''')
-        
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS content_tags (
                 content_id INTEGER, 
@@ -101,23 +101,23 @@ def extract_tags(text):
     """Extracts explicit tags (#tag) and AI-generated tags (nouns) from text."""
     if not text:
         return set(), set()
-    
+
     user_tags = set(re.findall(r'#(\w+)', text.lower()))
-    
+
     ai_tags = set()
     if morph:
         clean_text = re.sub(r'[^\w\s]', ' ', text).split()
         for word in clean_text:
             word = word.lower()
-            if len(word) < 3: 
+            if len(word) < 3:
                 continue
-            
+
             parsed = morph.parse(word)[0]
             if 'NOUN' in parsed.tag or word.isdigit():
                 normal_form = parsed.normal_form
                 if normal_form not in user_tags:
                     ai_tags.add(normal_form)
-                    
+
     return user_tags, ai_tags
 
 
@@ -139,7 +139,7 @@ def save_content_entry(user_id, files, description):
                 "INSERT INTO media (content_id, file_id, file_type) VALUES (?,?,?)",
                 (content_id, f['id'], f['type'])
             )
-        
+
         _update_tags_transaction(cursor, content_id, description)
 
         cursor.execute("SELECT COUNT(*) FROM content WHERE user_id = ?", (user_id,))
@@ -155,21 +155,21 @@ def _update_tags_transaction(cursor, content_id, description):
         return
 
     user_tags, ai_tags = extract_tags(description)
-    
+
     for tag_set, tag_type in [(user_tags, 'user'), (ai_tags, 'ai')]:
         for tag in tag_set:
             tag_name = f"#{tag}" if tag_type == 'user' else tag
-            
+
             cursor.execute(
-                "INSERT OR IGNORE INTO tags (tag_name, tag_type) VALUES (?, ?)", 
+                "INSERT OR IGNORE INTO tags (tag_name, tag_type) VALUES (?, ?)",
                 (tag_name, tag_type)
             )
-            
+
             cursor.execute("SELECT id FROM tags WHERE tag_name = ?", (tag_name,))
             res = cursor.fetchone()
             if res:
                 cursor.execute(
-                    "INSERT INTO content_tags (content_id, tag_id) VALUES (?, ?)", 
+                    "INSERT INTO content_tags (content_id, tag_id) VALUES (?, ?)",
                     (content_id, res[0])
                 )
 
@@ -194,8 +194,12 @@ def kb_main():
     markup.add("🔍 Поиск")
     return markup
 
-
 def kb_cancel():
+    """Клавиатура для отмены текущего действия (загрузка, ввод текста)."""
+    return types.ReplyKeyboardMarkup(resize_keyboard=True).add("❌ Отменить")
+
+def kb_to_main():
+    """Клавиатура для возврата в меню из разделов поиска."""
     return types.ReplyKeyboardMarkup(resize_keyboard=True).add("🏠 В главное меню")
 
 
@@ -204,33 +208,31 @@ def kb_cancel():
 @bot.message_handler(commands=['start', 'help'])
 def handler_start(message):
     init_database()
-    
-    # Новое профессиональное описание
+
     welcome_text = (
         "<b>🌟 Добро пожаловать в Smart SPB Media!</b>\n\n"
         "Этот бот — ваш персональный умный архив для хранения и систематизации медиаконтента.\n\n"
         "<b>Инструкция по использованию:</b>\n"
         "1️⃣ Нажмите кнопку <b>«Загрузить»</b>.\n"
         "2️⃣ Отправьте фото, видео или целый альбом.\n"
-        "3️⃣ Добавьте описание. Вы можете использовать теги через <code>#</code> (например, #природа).\n"
-        "4️⃣ Бот автоматически проанализирует текст и добавит умные теги для удобного поиска в будущем.\n\n"
+        "3️⃣ Добавьте описание. Вы можете использовать теги через <code>#</code> (например, #природа).\n\n"
         "<i>Используйте нижнее меню для навигации по вашей галерее и поиска записей.</i>"
     )
-    
+
     bot.send_message(
-        message.chat.id, 
-        welcome_text, 
-        reply_markup=kb_main(), 
+        message.chat.id,
+        welcome_text,
+        reply_markup=kb_main(),
         parse_mode="HTML"
     )
 
 
 @bot.message_handler(commands=['cancel'])
-@bot.message_handler(func=lambda m: m.text == "🏠 В главное меню")
+@bot.message_handler(func=lambda m: m.text in ["❌ Отменить", "🏠 В главное меню"])
 def handler_cancel(message):
     upload_states.pop(message.from_user.id, None)
     edit_media_mode.pop(message.from_user.id, None)
-    bot.send_message(message.chat.id, "❌ Действие отменено.", reply_markup=kb_main())
+    bot.send_message(message.chat.id, "🔙 Возвращаемся в меню.", reply_markup=kb_main())
 
 
 # --- Bot Handlers: Upload Flow ---
@@ -245,8 +247,8 @@ def handler_upload_start(message):
 def handler_invalid_content(message):
     if message.chat.type == 'private':
         bot.send_message(
-            message.chat.id, 
-            "⚠️ Ошибка: Бот принимает только фото или видео. Пожалуйста, попробуйте снова.", 
+            message.chat.id,
+            "⚠️ Ошибка: Бот принимает только фото или видео. Пожалуйста, попробуйте снова.",
             reply_markup=kb_main()
         )
 
@@ -280,18 +282,18 @@ def process_album_upload(message, user_id, chat_id, file_info):
     if mg_id not in album_buffer:
         album_buffer[mg_id] = []
         threading.Timer(
-            0.8, 
-            finish_album_processing, 
+            0.8,
+            finish_album_processing,
             args=[chat_id, user_id, mg_id]
         ).start()
-    
+
     album_buffer[mg_id].append(file_info)
 
 
 def finish_album_processing(chat_id, user_id, mg_id):
     if mg_id not in album_buffer:
         return
-    
+
     files = album_buffer.pop(mg_id)
     caption = next((f['caption'] for f in files if f['caption']), None)
 
@@ -305,13 +307,13 @@ def finish_album_processing(chat_id, user_id, mg_id):
 
 
 def step_upload_finalize(message):
-    if message.text in ["🏠 В главное меню", "/cancel"]:
+    if message.text in ["❌ Отменить", "🏠 В главное меню", "/cancel"]:
         return handler_cancel(message)
-    
+
     if not message.text:
         bot.send_message(message.chat.id, "Пожалуйста, отправьте именно текст.")
         return bot.register_next_step_handler(message, step_upload_finalize)
-    
+
     files = upload_states.pop(message.from_user.id, None)
     if files:
         num = save_content_entry(message.from_user.id, files, message.text)
@@ -353,10 +355,10 @@ def search_days(message):
     bot.register_next_step_handler(msg, process_search_days)
 
 def process_search_days(message):
-    if message.text == "🏠 В главное меню": return handler_cancel(message)
+    if message.text in ["❌ Отменить", "🏠 В главное меню"]: return handler_cancel(message)
     if not message.text.isdigit():
         return bot.send_message(message.chat.id, "Введите корректное число.")
-    
+
     limit = (datetime.now() - timedelta(days=int(message.text))).strftime("%Y-%m-%d")
     today = datetime.now().strftime('%Y-%m-%d')
     render_list(message.chat.id, message.from_user.id, mode="range", search_val=f"{limit}|{today}")
@@ -368,7 +370,7 @@ def search_range(message):
     bot.register_next_step_handler(msg, process_search_range)
 
 def process_search_range(message):
-    if message.text == "🏠 В главное меню": return handler_cancel(message)
+    if message.text in ["❌ Отменить", "🏠 В главное меню"]: return handler_cancel(message)
     try:
         d1, d2 = message.text.split("-")
         date1 = datetime.strptime(d1.strip(), "%d.%m.%Y").strftime("%Y-%m-%d")
@@ -384,7 +386,7 @@ def search_id(message):
     bot.register_next_step_handler(msg, process_search_id)
 
 def process_search_id(message):
-    if message.text == "🏠 В главное меню": return handler_cancel(message)
+    if message.text in ["❌ Отменить", "🏠 В главное меню"]: return handler_cancel(message)
     if not message.text.isdigit():
         return bot.send_message(message.chat.id, "Введите число.")
     render_gallery(message.chat.id, message.from_user.id, post_num=int(message.text))
@@ -396,15 +398,23 @@ def render_gallery(chat_id, user_id, post_num=None, photo_index=0, call=None):
     with DBManager() as cursor:
         cursor.execute("SELECT id, description, timestamp FROM content WHERE user_id = ? ORDER BY id ASC", (user_id,))
         posts = cursor.fetchall()
-        
+
         if not posts:
             bot.send_message(chat_id, "Ваш архив пока пуст. Самое время что-нибудь загрузить!", reply_markup=kb_main())
             return
 
         total_posts = len(posts)
-        post_num = int(post_num) if post_num is not None else total_posts
-        post_num = max(1, min(post_num, total_posts))
-        
+
+        # --- FIX: Строгая проверка порядкового номера ---
+        if post_num is not None:
+            post_num = int(post_num)
+            if post_num < 1 or post_num > total_posts:
+                bot.send_message(chat_id, "❌ Запись с таким номером не найдена.", reply_markup=kb_main())
+                return
+        else:
+            post_num = total_posts # По умолчанию последняя
+        # -----------------------------------------------
+
         db_id, desc, ts = posts[post_num - 1]
 
         cursor.execute("SELECT file_id, file_type FROM media WHERE content_id = ? ORDER BY id ASC", (db_id,))
@@ -412,14 +422,14 @@ def render_gallery(chat_id, user_id, post_num=None, photo_index=0, call=None):
 
     total_photos = len(media_list)
     photo_index = max(0, min(photo_index, total_photos - 1))
-    
+
     file_id, file_type = (None, None)
     if total_photos > 0:
         file_id, file_type = media_list[photo_index]
 
     caption = f"<b>📦 Запись №{post_num}</b>\n⏰ {ts}\n\n{desc or '...'}"
     markup = types.InlineKeyboardMarkup()
-    
+
     if total_photos > 1:
         btn_prev = types.InlineKeyboardButton("⏪", callback_data=f"gal_{post_num}_{photo_index - 1}") if photo_index > 0 else types.InlineKeyboardButton("⛔️", callback_data="none")
         btn_count = types.InlineKeyboardButton(f"{photo_index + 1}/{total_photos}", callback_data="none")
@@ -431,9 +441,9 @@ def render_gallery(chat_id, user_id, post_num=None, photo_index=0, call=None):
         types.InlineKeyboardButton("📝 Редактировать", callback_data=f"preedit_{db_id}_{post_num}")
     )
 
-    btn_post_next = types.InlineKeyboardButton("След. ➡️", callback_data=f"gal_{post_num + 1}_0") if post_num < total_posts else types.InlineKeyboardButton("⛔️", callback_data="none")
-    btn_post_prev = types.InlineKeyboardButton("⬅️ Пред.", callback_data=f"gal_{post_num - 1}_0") if post_num > 1 else types.InlineKeyboardButton("⛔️", callback_data="none")
-    
+    btn_post_next = types.InlineKeyboardButton("⬅️ След.", callback_data=f"gal_{post_num + 1}_0") if post_num < total_posts else types.InlineKeyboardButton("⛔️", callback_data="none")
+    btn_post_prev = types.InlineKeyboardButton("Пред. ➡️", callback_data=f"gal_{post_num - 1}_0") if post_num > 1 else types.InlineKeyboardButton("⛔️", callback_data="none")
+
     markup.row(btn_post_next, btn_post_prev)
     markup.add(types.InlineKeyboardButton("🏠 МЕНЮ", callback_data="to_main"))
 
@@ -459,7 +469,7 @@ def render_list(chat_id, target_user_id, page=1, mode="all", search_val="", call
     offset = (page - 1) * per_page
     condition = "user_id = ?"
     params = [target_user_id]
-    
+
     if mode == "tag":
         condition += " AND id IN (SELECT content_id FROM content_tags WHERE tag_id IN (SELECT id FROM tags WHERE tag_name = ? OR tag_name = ?))"
         params.extend([search_val, f"#{search_val}"])
@@ -478,7 +488,7 @@ def render_list(chat_id, target_user_id, page=1, mode="all", search_val="", call
         records = cursor.fetchall()
 
     if not records:
-        bot.send_message(chat_id, "Ничего не найдено по вашему запросу.")
+        bot.send_message(chat_id, "Ничего не найдено по вашему запросу.", reply_markup=kb_main())
         return
 
     total_pages = (total + per_page - 1) // per_page
@@ -546,6 +556,10 @@ def handle_callbacks(call):
     elif action == "realdel":
         delete_content(parts[1])
         bot.answer_callback_query(call.id, "Удалено")
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
         render_gallery(call.message.chat.id, call.from_user.id)
     elif action == "cancel":
         render_gallery(call.message.chat.id, call.from_user.id, parts[2], 0, call=call)
@@ -574,7 +588,7 @@ def handle_callbacks(call):
 # --- Helper Functions ---
 
 def finalize_edit_desc(message, content_id, post_num):
-    if message.text in ["🏠 В главное меню", "/cancel"]: return handler_cancel(message)
+    if message.text in ["❌ Отменить", "🏠 В главное меню", "/cancel"]: return handler_cancel(message)
     update_content_description(content_id, message.text)
     bot.send_message(message.chat.id, "✅ Описание успешно обновлено")
     render_gallery(message.chat.id, message.from_user.id, int(post_num), 0)
